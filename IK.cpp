@@ -27,7 +27,6 @@
 
 #include <sstream>
 #include <string>
-
 #include "Eigen/Dense"
 
 #ifdef _WIN32
@@ -58,9 +57,9 @@ class Joint {
     Joint(Matrix2f rotation, float length): length(length), rotation(rotation) {};
 
     void draw(Vector3f pos) {
-      GLUquadricObj *quadratic;
-      quadratic = gluNewQuadric();
-      gluCylinder(quadratic, 1.0f, 0.0f, 10, 32, 32);
+      // GLUquadricObj *quadratic;
+      // quadratic = gluNewQuadric();
+      // gluCylinder(quadratic, 1.0f, 0.0f, 10, 32, 32);
     };
 
 };
