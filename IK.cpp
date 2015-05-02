@@ -52,14 +52,37 @@ class Joint {
   public:
     float length;
     Matrix2f rotation;
+    Vector3f end;
 
     //Constructor
-    Joint(Matrix2f rotation, float length): length(length), rotation(rotation) {};
+    Joint(Matrix2f rotation, float length, Vector3f end): length(length), rotation(rotation), end(end) {};
 
-    void draw(Vector3f pos) {
-      // GLUquadricObj *quadratic;
-      // quadratic = gluNewQuadric();
-      // gluCylinder(quadratic, 1.0f, 0.0f, 10, 32, 32);
+    void draw(Vector3f start) {
+      glBegin(GL_TRIANGLE_FAN);
+      glVertex3f(end.x(), end.y(), end.z());
+      for(int i = 0; i < 20; i++) {
+        for(float theta_1 = -90; theta_1 <= 90; theta_1 += (360 / 20)) {
+          for(float theta_2 = -180; theta_2 <= 180; theta_2 += (360 / 20)) {
+            float theta_1_r = fmod(theta_1, (2.0 * PI));
+            if( theta_1_r < -PI ) {
+              theta_1_r += (2.0 * PI);
+            }
+            else if( theta_1_r > PI ) {
+              theta_1_r -= (2.0 * PI);
+            }
+            float theta_2_r = fmod(theta_2, (2.0 * PI));
+            if(theta_2_r < -PI ) {
+              theta_2_r += (2.0 * PI);
+            }
+            else if(theta_2_r > PI ) {
+              theta_2_r -= (2.0 * PI);
+            }
+            glVertex3f(start.x() + cos(theta_1_r) * cos(theta_2_r) * 0.25, 
+                       start.y() + cos(theta_1_r) * sin(theta_2_r) * 0.25,
+                       start.z() + sin(theta_1_r) * 0.25);
+          }
+        }
+      }
     };
 
 };
