@@ -58,31 +58,22 @@ class Joint {
     Joint(Matrix2f rotation, float length, Vector3f end): length(length), rotation(rotation), end(end) {};
 
     void draw(Vector3f start) {
-      glBegin(GL_TRIANGLE_FAN);
+
+      //Draw arm segment
+      glLineWidth(3); 
+      glColor3f(1.0, 1.0, 0.0);
+      glBegin(GL_LINES);
+      glVertex3f(start.x(), start.y(), start.z());
       glVertex3f(end.x(), end.y(), end.z());
-      for(int i = 0; i < 20; i++) {
-        for(float theta_1 = -90; theta_1 <= 90; theta_1 += (360 / 20)) {
-          for(float theta_2 = -180; theta_2 <= 180; theta_2 += (360 / 20)) {
-            float theta_1_r = fmod(theta_1, (2.0 * PI));
-            if( theta_1_r < -PI ) {
-              theta_1_r += (2.0 * PI);
-            }
-            else if( theta_1_r > PI ) {
-              theta_1_r -= (2.0 * PI);
-            }
-            float theta_2_r = fmod(theta_2, (2.0 * PI));
-            if(theta_2_r < -PI ) {
-              theta_2_r += (2.0 * PI);
-            }
-            else if(theta_2_r > PI ) {
-              theta_2_r -= (2.0 * PI);
-            }
-            glVertex3f(start.x() + cos(theta_1_r) * cos(theta_2_r) * 0.25, 
-                       start.y() + cos(theta_1_r) * sin(theta_2_r) * 0.25,
-                       start.z() + sin(theta_1_r) * 0.25);
-          }
-        }
-      }
+      glEnd();
+
+      //Draw Ball Joint
+      GLUquadric *quad;
+      quad = gluNewQuadric();
+      glTranslatef(start.x(), start.y(), start.z());
+      gluSphere(quad,0.02,100,20);
+
+      glLoadIdentity();
     };
 
 };
@@ -139,6 +130,16 @@ void draw() {
   glLoadIdentity();                            // make sure transformation is "zero'd"
 
   //----------------------- code to draw objects --------------------------
+
+  Matrix2f rotation;
+  rotation << cos(0), -sin(0), sin(0), cos(0);
+
+  Vector3f end = Vector3f(0, 0.1, 0);
+  Joint jnt1 = Joint(rotation, 1.0f, end);
+  jnt1.draw(Vector3f(-0.1, -0.1, 0));
+  Joint jnt2 = Joint(rotation, 1.0f, Vector3f(0, 0.2, 0));
+  jnt2.draw(end);
+
   
   glFlush();
   glutSwapBuffers();                           // swap buffers (we earlier set double buffer)
