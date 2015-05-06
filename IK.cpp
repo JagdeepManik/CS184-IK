@@ -53,19 +53,19 @@ class Viewport {
 class Joint {
   public:
     float length;
-    Matrix2f rotation;
+    Matrix3f rotation;
     Vector3f end;
     Matrix3f jacobian;
 
     //Constructor
-    Joint(Matrix2f rotation, float length, Vector3f end): length(length), rotation(rotation), end(end) {
+    Joint(Matrix3f rotation, float length, Vector3f end): length(length), rotation(rotation), end(end) {
     	findJacobian();
     };
 
     void findJacobian() {
-    	jacobian << 0,       end.z(), -end.y(),
-    				-end.z(),    0,     end.x(),
-    				end.y(), -end.x(),       0;   
+    	jacobian << 0,  -end.z(),  end.y(),
+    				end.z(),         0, -end.x(),
+    				-end.y(),  end.x(),        0;   
     };
 
     void draw(Vector3f start) {
@@ -93,12 +93,27 @@ class Joint {
 //****************************************************
 // Global Variables
 //****************************************************
+MatrixXf    *systemJacobian;
 Viewport    viewport;
 Vector3f    effector;
 vector<Joint> joints;
 float accum = 0.0f;
 int numJoints;
 
+// jacobian composition
+void composeJacobian() {
+  Matrix3f composition;
+  composition << 1, 0, 0, 0, 1, 0, 0, 0, 1;
+  cout << joints.size() << endl;
+  for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
+    composition *= joints[i].rotation;
+    joints[i].jacobian *= composition;
+    Matrix3f ji = joints[i].jacobian;
+    systemJacobian->block(3*joints.size() - 3*(i+1), 0, 3, 3) << ji(0, 0), ji(0, 1), 
+      ji(0, 2), ji(1, 0), ji(1, 1), ji(1, 2), ji(2, 0), ji(2, 1), ji(2, 2); 
+  }
+  cout << (*systemJacobian).transpose() << endl;
+}
 
 //****************************************************
 // reshape viewport if the window is resized
@@ -133,6 +148,8 @@ void initScene(){
   myReshape(viewport.w,viewport.h);
 }
 
+bool testzz = true;
+
 //***************************************************
 // function that does the actual drawing
 //***************************************************
@@ -147,9 +164,13 @@ void draw() {
 
   Vector3f start = Vector3f(0, 0, 0);
   for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
-  	cout << joints[i].jacobian << endl;
     joints[i].draw(start);
     start = joints[i].end;
+  }
+
+  if (testzz) {
+    composeJacobian();
+    testzz = false;
   }
   
   glFlush();
@@ -219,10 +240,10 @@ vector<float> parseLine(vector<string> tokens, int expected, string command) {
 
 void parseJoint(vector<string> tokens) { 
   vector<float> data = parseLine(tokens, 1, "joint");
-  Matrix2f rotation;
-  rotation << 1, 0, 0, 1;
+  Matrix3f rotation;
+  rotation << 1, 0, 0, 0, 1, 0, 0, 0, 1;
   accum += data[0];
-  Vector3f end = Vector3f(0, accum, 0);
+  Vector3f end = Vector3f(accum, 0, 0);
   Joint *j = new Joint(rotation, data[0], end);
   joints.push_back(*j);
   effector = end;
@@ -246,6 +267,8 @@ int main(int argc, char *argv[]) {
 
   //read command line arguments 
   parseInput(argc, argv);
+  MatrixXf mat(3*joints.size(), 3);
+  systemJacobian = &mat;
 
   //This tells glut to use a double-buffered window with red, green, and blue channels 
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
