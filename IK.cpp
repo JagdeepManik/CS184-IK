@@ -43,7 +43,7 @@ using namespace Eigen;
 #define PI 3.14159265359
 
 //****************************************************
-// Some Classes
+// Classes
 //****************************************************
 class Viewport {
   public:
@@ -55,9 +55,18 @@ class Joint {
     float length;
     Matrix2f rotation;
     Vector3f end;
+    Matrix3f jacobian;
 
     //Constructor
-    Joint(Matrix2f rotation, float length, Vector3f end): length(length), rotation(rotation), end(end) {};
+    Joint(Matrix2f rotation, float length, Vector3f end): length(length), rotation(rotation), end(end) {
+    	findJacobian();
+    };
+
+    void findJacobian() {
+    	jacobian << 0,       end.z(), -end.y(),
+    				-end.z(),    0,     end.x(),
+    				end.y(), -end.x(),       0;   
+    };
 
     void draw(Vector3f start) {
 
@@ -138,6 +147,7 @@ void draw() {
 
   Vector3f start = Vector3f(0, 0, 0);
   for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
+  	cout << joints[i].jacobian << endl;
     joints[i].draw(start);
     start = joints[i].end;
   }
@@ -231,12 +241,10 @@ void parseInput(int argc, char** argv) {
 // the usual stuff, nothing exciting here
 //****************************************************
 int main(int argc, char *argv[]) {
-
-  //read command line arguments 
-  
   //This initializes glut
   glutInit(&argc, argv);
 
+  //read command line arguments 
   parseInput(argc, argv);
 
   //This tells glut to use a double-buffered window with red, green, and blue channels 
