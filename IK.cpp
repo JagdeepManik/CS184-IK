@@ -23,11 +23,13 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <cmath>
 
 #include <sstream>
 #include <string>
 #include "Eigen/Dense"
+
+#include <cstdio>
+#include <iterator>
 
 #ifdef _WIN32
 static DWORD lastTime;
@@ -83,6 +85,8 @@ class Joint {
 // Global Variables
 //****************************************************
 Viewport    viewport;
+vector<Joint> joints;
+float accum = 0.0f;
 int numJoints;
 
 
@@ -131,14 +135,20 @@ void draw() {
 
   //----------------------- code to draw objects --------------------------
 
-  Matrix2f rotation;
+  Vector3f start = Vector3f(0, 0, 0);
+  for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
+    joints[i].draw(start);
+    start = joints[i].end;
+  }
+
+  /*Matrix2f rotation;
   rotation << cos(0), -sin(0), sin(0), cos(0);
 
   Vector3f end = Vector3f(0, 0.1, 0);
   Joint jnt1 = Joint(rotation, 1.0f, end);
   jnt1.draw(Vector3f(-0.1, -0.1, 0));
   Joint jnt2 = Joint(rotation, 1.0f, Vector3f(0, 0.2, 0));
-  jnt2.draw(end);
+  jnt2.draw(end); */
 
   
   glFlush();
@@ -171,6 +181,61 @@ void specialKey(int key, int x, int y) {
 }
 
 //****************************************************
+// parse input file
+//****************************************************
+
+/* Splits a string by whitespace. */
+std::vector<std::string> split(const std::string &str) {
+  std::vector <std::string> tokens;
+  std::stringstream stream(str);
+  std::string temp;
+  
+  while (stream >> temp) {
+    tokens.push_back(temp);
+  }
+  return tokens;
+}
+
+/* Displays an error if too many args */
+void argumentError(std::string command, int expected) {
+  string err = "Too many arguments in \"" + command + "\". Expected: " + to_string(expected) + "\n";
+  fprintf(stderr, "%s", err.c_str());
+}
+
+/* Parses a line of floats */
+vector<float> parseLine(vector<string> tokens, int expected, string command) {
+  vector<float> data;
+  int depth = 0;
+  for (vector<string>::size_type i = 1; i != tokens.size(); i++) {
+    if (tokens[i].compare("") != 0) {
+      if (depth == expected) { argumentError(command, expected); break; }
+      data.push_back(stof(tokens[i]));
+      depth += 1;
+    }
+  }
+  return data;
+}
+
+void parseJoint(vector<string> tokens) { 
+  vector<float> data = parseLine(tokens, 1, "joint");
+  Matrix2f rotation;
+  rotation << 1, 0, 0, 1;
+  accum += data[0];
+  Vector3f end = Vector3f(0, accum, 0);
+  Joint *j = new Joint(rotation, data[0], end);
+  joints.push_back(*j);
+}
+
+void parseInput(int argc, char** argv) {
+  string line;
+  while (getline(cin, line)) {
+    vector<string> tokens = split(line);
+    if (tokens.size() == 0) { continue; }
+    if (tokens[0].compare("joint") == 0) { parseJoint(tokens); }
+  }
+} 
+
+//****************************************************
 // the usual stuff, nothing exciting here
 //****************************************************
 int main(int argc, char *argv[]) {
@@ -179,6 +244,8 @@ int main(int argc, char *argv[]) {
   
   //This initializes glut
   glutInit(&argc, argv);
+
+  parseInput(argc, argv);
 
   //This tells glut to use a double-buffered window with red, green, and blue channels 
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
