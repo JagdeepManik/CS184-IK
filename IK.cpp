@@ -85,6 +85,7 @@ class Joint {
 // Global Variables
 //****************************************************
 Viewport    viewport;
+Vector3f    effector;
 vector<Joint> joints;
 float accum = 0.0f;
 int numJoints;
@@ -140,16 +141,6 @@ void draw() {
     joints[i].draw(start);
     start = joints[i].end;
   }
-
-  /*Matrix2f rotation;
-  rotation << cos(0), -sin(0), sin(0), cos(0);
-
-  Vector3f end = Vector3f(0, 0.1, 0);
-  Joint jnt1 = Joint(rotation, 1.0f, end);
-  jnt1.draw(Vector3f(-0.1, -0.1, 0));
-  Joint jnt2 = Joint(rotation, 1.0f, Vector3f(0, 0.2, 0));
-  jnt2.draw(end); */
-
   
   glFlush();
   glutSwapBuffers();                           // swap buffers (we earlier set double buffer)
@@ -224,6 +215,7 @@ void parseJoint(vector<string> tokens) {
   Vector3f end = Vector3f(0, accum, 0);
   Joint *j = new Joint(rotation, data[0], end);
   joints.push_back(*j);
+  effector = end;
 }
 
 void parseInput(int argc, char** argv) {
