@@ -54,6 +54,7 @@ class Joint {
   public:
     float length;
     Matrix3f rotation;
+    MatrixXf colRotate;
     Vector3f end;
     Matrix3f jacobian;
 
@@ -67,6 +68,23 @@ class Joint {
     				end.z(),         0, -end.x(),
     				-end.y(),  end.x(),        0;   
     };
+
+    void rotate(float rx, float ry, float rz) {
+      Vector3f rvec = Vector3f(rx, ry, rz);
+      MatrixXf rot(3, 1);
+      float theta = rvec.norm();
+      rvec.normalize();
+      rot << rvec.x(), rvec.y(), rvec.z();
+
+      Matrix3f matrx; 
+      matrx << 0, -rvec.z(), rvec.y(), rvec.z(), 0, -rvec.x(), -rvec.y(), rvec.x(), 0;
+
+      Matrix3f identity;
+      identity << 1, 0, 0, 0, 1, 0, 0, 0, 1;
+      rotation = identity + sin(theta) * matrx + (1 - cos(theta)) * (matrx * matrx);
+      end = rotation * end;
+      colRotate = rot;
+    }
 
     void draw(Vector3f start) {
 
@@ -104,7 +122,6 @@ int numJoints;
 void composeJacobian() {
   Matrix3f composition;
   composition << 1, 0, 0, 0, 1, 0, 0, 0, 1;
-  cout << joints.size() << endl;
   for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
     composition *= joints[i].rotation;
     joints[i].jacobian *= composition;
@@ -112,7 +129,6 @@ void composeJacobian() {
     systemJacobian->block(3*joints.size() - 3*(i+1), 0, 3, 3) << ji(0, 0), ji(0, 1), 
       ji(0, 2), ji(1, 0), ji(1, 1), ji(1, 2), ji(2, 0), ji(2, 1), ji(2, 2); 
   }
-  cout << (*systemJacobian).transpose() << endl;
 }
 
 //****************************************************
@@ -148,8 +164,6 @@ void initScene(){
   myReshape(viewport.w,viewport.h);
 }
 
-bool testzz = true;
-
 //***************************************************
 // function that does the actual drawing
 //***************************************************
@@ -168,10 +182,7 @@ void draw() {
     start = joints[i].end;
   }
 
-  if (testzz) {
-    composeJacobian();
-    testzz = false;
-  }
+  //composeJacobian();
   
   glFlush();
   glutSwapBuffers();                           // swap buffers (we earlier set double buffer)
@@ -245,8 +256,9 @@ void parseJoint(vector<string> tokens) {
   accum += data[0];
   Vector3f end = Vector3f(accum, 0, 0);
   Joint *j = new Joint(rotation, data[0], end);
+  effector = j->end;
   joints.push_back(*j);
-  effector = end;
+  
 }
 
 void parseInput(int argc, char** argv) {
