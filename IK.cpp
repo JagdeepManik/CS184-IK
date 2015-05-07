@@ -135,6 +135,17 @@ void composeJacobian() {
   systemJacobian->transposeInPlace();
 }
 
+void ikSolve() {
+  composeJacobian();
+  Vector3f dp = effector + step*(goal - effector);
+  MatrixXf dr = systemJacobian->jacobiSvd(Eigen::ComputeThinU|Eigen::ComputeThinV).solve(dp);
+  int start = 0;
+  for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
+    start = dr.rows() - 3*(i + 1);
+    joints[i].rotate(dr(start, 0), dr(start + 1, 0), dr(start + 2, 0));
+  }
+}
+
 //****************************************************
 // reshape viewport if the window is resized
 //****************************************************
@@ -171,6 +182,9 @@ void initScene(){
 //***************************************************
 // function that does the actual drawing
 //***************************************************
+
+int iteration = 0;
+
 void draw() {
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);                 // clear the color buffer (sets everything to black)
@@ -186,6 +200,13 @@ void draw() {
     start = joints[i].end;
   }
 
+  if (iteration < 2) {
+    MatrixXf mat(3*joints.size(), 3);
+    systemJacobian = &mat;
+    ikSolve();
+    iteration += 1;
+  }
+
   GLUquadric *quad;
   quad = gluNewQuadric();
   glTranslatef(goal.x(), goal.y(), goal.z());
@@ -195,17 +216,6 @@ void draw() {
   
   glFlush();
   glutSwapBuffers();                           // swap buffers (we earlier set double buffer)
-}
-
-void ikSolve() {
-  composeJacobian();
-  Vector3f dp = effector + step*(goal - effector);
-  MatrixXf dr = systemJacobian->jacobiSvd(Eigen::ComputeThinU|Eigen::ComputeThinV).solve(dp);
-  int start = 0;
-  for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
-    start = dr.rows() - 3*(i + 1);
-    joints[i].rotate(dr(start, 0), dr(start + 1, 0), dr(start + 2, 0));
-  }
 }
 
 
@@ -310,10 +320,6 @@ int main(int argc, char *argv[]) {
 
   //read command line arguments 
   parseInput(argc, argv);
-  MatrixXf mat(3*joints.size(), 3);
-  systemJacobian = &mat;
-
-  ikSolve();
 
   //This tells glut to use a double-buffered window with red, green, and blue channels 
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
