@@ -42,6 +42,8 @@ using namespace Eigen;
 
 #define PI 3.14159265359
 
+int iteration = 0;
+
 //****************************************************
 // Classes
 //****************************************************
@@ -116,6 +118,8 @@ Viewport    viewport;
 Vector3f    effector;
 Vector3f    goal;
 float       step;
+Vector3f    previousEE;
+bool        stopYo = false;
 
 vector<Joint> joints;
 float accum = 0.0f;
@@ -123,6 +127,12 @@ int numJoints;
 
 // jacobian composition
 void composeJacobian() {
+  if (iteration == 1) {
+    return;
+  }
+  MatrixXf mat(3*joints.size(), 3);
+  systemJacobian = &mat;
+
   Matrix3f composition;
   composition << 1, 0, 0, 0, 1, 0, 0, 0, 1;
   for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
@@ -132,7 +142,7 @@ void composeJacobian() {
     systemJacobian->block(3*joints.size() - 3*(i+1), 0, 3, 3) << ji(0, 0), ji(0, 1), 
       ji(0, 2), ji(1, 0), ji(1, 1), ji(1, 2), ji(2, 0), ji(2, 1), ji(2, 2); 
   }
-  systemJacobian->transposeInPlace();
+  //systemJacobian->transposeInPlace();
 }
 
 //****************************************************
@@ -171,14 +181,41 @@ void initScene(){
 //***************************************************
 // function that does the actual drawing
 //***************************************************
+
+void ikSolve() {
+  if (iteration == 1) {
+    return;
+  }
+  composeJacobian();
+  Vector3f dp = effector + step*(goal - effector);
+  cout << "Before DR" << endl;
+  MatrixXf dr = systemJacobian->jacobiSvd(Eigen::ComputeThinU|Eigen::ComputeThinV).solve(dp);
+  cout << "After DR" << endl;
+  int start = 0;
+  for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
+    start = dr.rows() - 3*(i + 1);
+    joints[i].rotate(dr(start, 0), dr(start + 1, 0), dr(start + 2, 0));
+  }
+  effector = joints[joints.size() - 1].end;
+}
+
 void draw() {
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);                 // clear the color buffer (sets everything to black)
-
   glMatrixMode(GL_MODELVIEW);                  // indicate we are specifying camera transformations
   glLoadIdentity();                            // make sure transformation is "zero'd"
 
   //----------------------- code to draw objects --------------------------
+
+  if (not stopYo) {
+    previousEE = effector;
+    ikSolve();
+    iteration += 1;
+    stopYo = true;
+  }
+  if ((goal - effector).norm() > (goal - previousEE).norm()) {
+    stopYo = true;
+  }
 
   Vector3f start = Vector3f(0, 0, 0);
   for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
@@ -190,22 +227,9 @@ void draw() {
   quad = gluNewQuadric();
   glTranslatef(goal.x(), goal.y(), goal.z());
   gluSphere(quad,0.02,100,20);
-
-  //composeJacobian();
   
   glFlush();
   glutSwapBuffers();                           // swap buffers (we earlier set double buffer)
-}
-
-void ikSolve() {
-  composeJacobian();
-  Vector3f dp = effector + step*(goal - effector);
-  MatrixXf dr = systemJacobian->jacobiSvd(Eigen::ComputeThinU|Eigen::ComputeThinV).solve(dp);
-  int start = 0;
-  for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
-    start = dr.rows() - 3*(i + 1);
-    joints[i].rotate(dr(start, 0), dr(start + 1, 0), dr(start + 2, 0));
-  }
 }
 
 
@@ -313,13 +337,11 @@ int main(int argc, char *argv[]) {
   MatrixXf mat(3*joints.size(), 3);
   systemJacobian = &mat;
 
-  ikSolve();
-
   //This tells glut to use a double-buffered window with red, green, and blue channels 
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
 
   // Initalize theviewport sizes
-  viewport.w = 1300;
+  viewport.w = 1000;
   viewport.h = 1000;
 
   //The size and position of the window
