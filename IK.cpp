@@ -114,6 +114,9 @@ class Joint {
 MatrixXf    *systemJacobian;
 Viewport    viewport;
 Vector3f    effector;
+Vector3f    goal;
+float       step;
+
 vector<Joint> joints;
 float accum = 0.0f;
 int numJoints;
@@ -129,6 +132,7 @@ void composeJacobian() {
     systemJacobian->block(3*joints.size() - 3*(i+1), 0, 3, 3) << ji(0, 0), ji(0, 1), 
       ji(0, 2), ji(1, 0), ji(1, 1), ji(1, 2), ji(2, 0), ji(2, 1), ji(2, 2); 
   }
+  systemJacobian->transposeInPlace();
 }
 
 //****************************************************
@@ -182,10 +186,26 @@ void draw() {
     start = joints[i].end;
   }
 
+  GLUquadric *quad;
+  quad = gluNewQuadric();
+  glTranslatef(goal.x(), goal.y(), goal.z());
+  gluSphere(quad,0.02,100,20);
+
   //composeJacobian();
   
   glFlush();
   glutSwapBuffers();                           // swap buffers (we earlier set double buffer)
+}
+
+void ikSolve() {
+  composeJacobian();
+  Vector3f dp = effector + step*(goal - effector);
+  MatrixXf dr = systemJacobian->jacobiSvd(Eigen::ComputeThinU|Eigen::ComputeThinV).solve(dp);
+  int start = 0;
+  for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
+    start = dr.rows() - 3*(i + 1);
+    joints[i].rotate(dr(start, 0), dr(start + 1, 0), dr(start + 2, 0));
+  }
 }
 
 
@@ -257,8 +277,17 @@ void parseJoint(vector<string> tokens) {
   Vector3f end = Vector3f(accum, 0, 0);
   Joint *j = new Joint(rotation, data[0], end);
   effector = j->end;
-  joints.push_back(*j);
-  
+  joints.push_back(*j); 
+}
+
+void parseGoal(vector<string> tokens) {
+  vector<float> data = parseLine(tokens, 3, "end");
+  goal = Vector3f(data[0], data[1], data[2]);
+}
+
+void parseStepSize(vector<string> tokens) {
+  vector<float> data = parseLine(tokens, 1, "step");
+  step = data[0];
 }
 
 void parseInput(int argc, char** argv) {
@@ -267,6 +296,8 @@ void parseInput(int argc, char** argv) {
     vector<string> tokens = split(line);
     if (tokens.size() == 0) { continue; }
     if (tokens[0].compare("joint") == 0) { parseJoint(tokens); }
+    if (tokens[0].compare("end") == 0) { parseGoal(tokens); }
+    if (tokens[0].compare("step") == 0) { parseStepSize(tokens); }
   }
 } 
 
@@ -281,6 +312,8 @@ int main(int argc, char *argv[]) {
   parseInput(argc, argv);
   MatrixXf mat(3*joints.size(), 3);
   systemJacobian = &mat;
+
+  ikSolve();
 
   //This tells glut to use a double-buffered window with red, green, and blue channels 
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
