@@ -105,12 +105,25 @@ class Joint {
       return X;
     }
 
-    /* Composes rotation matrixs up to this joint */
+    /* X(n -> i) = X(i) * X(i+1) * ...X(n−1) */
+    Matrix4f getTotalTransformationMatrix(vector<Joint> jnts) {
+      Matrix4f composite;
+      composite << 1, 0, 0, 0, 
+                   0, 1, 0, 0, 
+                   0, 0, 1, 0,
+                   0, 0, 0, 1;
+      for (int i = index; i < (jnts.size() - 1); i += 1) {
+        composite = composite * jnts[i].getTransformationMatrix();
+      }
+      return composite;
+    }
+
+    /* Composes rotation matrices up to this joint */
     Matrix3f getTotalRotationMatrix(vector<Joint> jnts) {
       Matrix3f composite;
       composite << 1, 0, 0, 0, 1, 0, 0, 0, 1;
-      for (int i = index; i >= 0; i--) {
-        composite *= jnts[i].Ri;
+      for (int i = 0; i < index; i += 1) {
+        composite = composite * jnts[i].Ri;
       }
       return composite;
     }
@@ -158,41 +171,20 @@ Matrix3f getCrossProductMatrix(Vector3f v) {
   return matrix;
 }
 
-/* Gets J = (J1' | J2' | ... | JN') */
 MatrixXf getJacobian() {
   MatrixXf jacobian(3, 3*joints.size());
-  Matrix4f Xcurrent;
-  Xcurrent << 1, 0, 0, 0,
-              0, 1, 0, 0,
-              0, 0, 1, 0,
-              0, 0, 0, 1;
-
-  /* Apply to last node */
-  Joint joint = joints[joints.size() - 1];
-  Matrix3f totalRotation = joint.getTotalRotationMatrix(joints);
-  Vector4f homoEnd = Vector4f(joint.end.x(), joint.end.y(), joint.end.z(), 1);
-  Vector4f xpn = Xcurrent * homoEnd;
-  Vector3f point = Vector3f(xpn[0] / xpn[3], xpn[1] / xpn[3], xpn[2] / xpn[3]);
-  Matrix3f Ji = (-1 * totalRotation) * getCrossProductMatrix(point);
-  jacobian.block(0, 3*joints.size() - 3, 3, 3) << Ji(0, 0), Ji(0, 1), Ji(0, 2),
-                                                  Ji(1, 0), Ji(1, 1), Ji(1, 2),
-                                                  Ji(2, 0), Ji(2, 1), Ji(2, 2);
-  Xcurrent = joint.getTransformationMatrix();
-
-  /* Loop through the rest */
-  for (int i = joints.size() - 2; i >= 0; i--) {
-    joint = joints[i];
-    totalRotation = joint.getTotalRotationMatrix(joints);
-    homoEnd = Vector4f(joint.end.x(), joint.end.y(), joint.end.z(), 1);
-    xpn = Xcurrent * homoEnd;
-    point = Vector3f(xpn[0] / xpn[3], xpn[1] / xpn[3], xpn[2] / xpn[3]);
-    Ji = totalRotation * getCrossProductMatrix(point);
+  Joint endjoint = joints[joints.size() - 1];
+  endjoint.calculateEnd();
+  Vector4f pn = Vector4f(endjoint.end.x(), endjoint.end.y(), endjoint.end.z(), 1);
+  for (int i = 0; i < joints.size(); i += 1) {
+    Matrix4f X = joints[i].getTotalTransformationMatrix(joints);
+    Vector4f xpn = X * pn;
+    Vector3f homo = Vector3f(xpn[0] / xpn[3], xpn[1] / xpn[3], xpn[2] / xpn[3]);
+    Matrix3f Ji = (-1 * joints[i].getTotalRotationMatrix(joints)) * getCrossProductMatrix(homo);
     jacobian.block(0, 3*i, 3, 3) << Ji(0, 0), Ji(0, 1), Ji(0, 2),
                                     Ji(1, 0), Ji(1, 1), Ji(1, 2),
                                     Ji(2, 0), Ji(2, 1), Ji(2, 2);
-    Xcurrent = joint.getTransformationMatrix() * Xcurrent;
   }
-
   return jacobian;
 }
 
