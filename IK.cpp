@@ -55,14 +55,16 @@ class Joint {
     Vector3f end;
     Vector3f ri;
     Matrix3f Ri;
+    int index;
 
     //Constructor
-    Joint(float length): length(length) {
+    Joint(float length, int i): length(length) {
       Matrix3f R(3, 3);
       R << 1, 0, 0, 0, 1, 0, 0, 0, 1;
       Ri = R;
       ri = Vector3f(0, 0, 0);
       calculateEnd();
+      index = i;
     };
 
     /* Calculates end point of the joint. */
@@ -97,8 +99,18 @@ class Joint {
       Matrix4f X = Matrix4f::Zero();
       X.block(0, 0, 3, 3) << Ri(0, 0), Ri(0, 1), Ri(0, 2), Ri(1, 0), Ri(1, 1), Ri(1, 2),
         Ri(2, 0), Ri(2, 1), Ri(2, 2);
-      X.block(0, 2, 4, 1) << end.x(), end.y(), end.z(), 1;
+      X.block(0, 3, 4, 1) << end.x(), end.y(), end.z(), 1;
       return X;
+    }
+
+    /* Composes rotation matrixs up to this joint */
+    Matrix3f getTotalRotationMatrix(vector<Joint> jnts) {
+      Matrix3f composite;
+      composite << 1, 0, 0, 0, 1, 0, 0, 0, 1;
+      for (int i = index; i >= 0; i--) {
+        composite *= jnts[i].Ri;
+      }
+      return composite;
     }
 
     void draw(Vector3f start) {
@@ -118,9 +130,7 @@ class Joint {
 
       glLoadIdentity();
     };
-
 };
-
 
 //****************************************************
 // Global Variables
@@ -132,6 +142,87 @@ Vector3f goal;
 float step;
 float epsilon;
 float accum = 0.0f;
+
+//****************************************************
+// General Functions
+//****************************************************
+
+/* [v] */
+Matrix3f getCrossProductMatrix(Vector3f v) {
+  Matrix3f matrix;
+  matrix <<      0, -v.z(),  v.y(),
+             v.z(),      0, -v.x(),
+            -v.y(),  v.x(),      0;
+  return matrix;
+}
+
+/* Gets J = (J1' | J2' | ... | JN') */
+MatrixXf getJacobian() {
+  MatrixXf jacobian(3, 3*joints.size());
+  Matrix4f Xcurrent;
+  Xcurrent << 1, 0, 0, 0,
+              0, 1, 0, 0,
+              0, 0, 1, 0,
+              0, 0, 0, 1;
+
+  /* Apply to last node */
+  Joint joint = joints[joints.size() - 1];
+  Matrix3f totalRotation = joint.getTotalRotationMatrix(joints);
+  Vector4f homoEnd = Vector4f(joint.end.x(), joint.end.y(), joint.end.z(), 1);
+  Vector4f xpn = Xcurrent * homoEnd;
+  Vector3f point = Vector3f(xpn[0] / xpn[3], xpn[1] / xpn[3], xpn[2] / xpn[3]);
+  Matrix3f Ji = (-1 * totalRotation) * getCrossProductMatrix(point);
+  jacobian.block(0, 3*joints.size() - 3, 3, 3) << Ji(0, 0), Ji(0, 1), Ji(0, 2),
+                                                  Ji(1, 0), Ji(1, 1), Ji(1, 2),
+                                                  Ji(2, 0), Ji(2, 1), Ji(2, 2);
+  Xcurrent = joint.getTransformationMatrix();
+
+  /* Loop through the rest */
+  for (int i = joints.size() - 2; i >= 0; i--) {
+    joint = joints[i];
+    totalRotation = joint.getTotalRotationMatrix(joints);
+    homoEnd = Vector4f(joint.end.x(), joint.end.y(), joint.end.z(), 1);
+    xpn = Xcurrent * homoEnd;
+    point = Vector3f(xpn[0] / xpn[3], xpn[1] / xpn[3], xpn[2] / xpn[3]);
+    Ji = totalRotation * getCrossProductMatrix(point);
+    jacobian.block(0, 3*i, 3, 3) << Ji(0, 0), Ji(0, 1), Ji(0, 2),
+                                    Ji(1, 0), Ji(1, 1), Ji(1, 2),
+                                    Ji(2, 0), Ji(2, 1), Ji(2, 2);
+    Xcurrent = joint.getTransformationMatrix() * Xcurrent;
+  }
+
+  return jacobian;
+}
+
+/* Recalculates the end effector in pe */
+void getEndEffector() {
+  Vector4f origin = Vector4f(0, 0, 0, 1);
+  for (int i = 0; i < joints.size(); i += 1) {
+    origin = joints[i].getTransformationMatrix() * origin;
+  }
+  pe = Vector3f(origin[0] / origin[3], origin[1] / origin[3], origin[2] / origin[3]);
+}
+
+/* Solves IK */
+void solveIK() {
+  MatrixXf jacobian = getJacobian();
+  getEndEffector();
+  Vector3f dp = pe + step*(goal - pe);
+  MatrixXf dr = jacobian.jacobiSvd(Eigen::ComputeThinU|Eigen::ComputeThinV).solve(dp);
+  int start = 0;
+  for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
+    start = dr.rows() - 3*(i + 1);
+    joints[i].addRotation(dr(start, 0), dr(start + 1, 0), dr(start + 2, 0));
+  }
+  getEndEffector();
+}
+
+/* Step IK */
+void stepIK() {
+  if ((goal - pe).norm() > epsilon) {
+    solveIK();
+  }
+}
 
 
 //****************************************************
@@ -170,6 +261,7 @@ void initScene(){
 //***************************************************
 // function that does the actual drawing
 //***************************************************
+
 void draw() {
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);                 // clear the color buffer (sets everything to black)
@@ -178,11 +270,20 @@ void draw() {
   glLoadIdentity();                            // make sure transformation is "zero'd"
 
   //----------------------- code to draw objects --------------------------
+
+  stepIK();
+
   Vector3f start = Vector3f(0, 0, 0);
   for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
     joints[i].draw(start);
     start += joints[i].end;
   }
+
+  /* Draw end effector */
+  GLUquadric *quad;
+  quad = gluNewQuadric();
+  glTranslatef(goal.x(), goal.y(), goal.z());
+  gluSphere(quad,0.02,100,20);
   
   glFlush();
   glutSwapBuffers();                           // swap buffers (we earlier set double buffer)
@@ -251,9 +352,9 @@ vector<float> parseLine(vector<string> tokens, int expected, string command) {
 
 void parseJoint(vector<string> tokens) { 
   vector<float> data = parseLine(tokens, 1, "joint");
-  Joint *j = new Joint(data[0]);
+  Joint *j = new Joint(data[0], joints.size());
   joints.push_back(*j); 
-  pe = j->calculateEnd();
+  pe += j->calculateEnd();
 }
 
 void parseGoal(vector<string> tokens) {
@@ -292,6 +393,7 @@ int main(int argc, char *argv[]) {
   glutInit(&argc, argv);
 
   //read command line arguments 
+  pe = Vector3f(0, 0, 0);
   parseInput(argc, argv);
 
   //This tells glut to use a double-buffered window with red, green, and blue channels 
