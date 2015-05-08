@@ -23,12 +23,13 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <cmath>
 
 #include <sstream>
 #include <string>
-
 #include "Eigen/Dense"
+
+#include <cstdio>
+#include <iterator>
 
 #ifdef _WIN32
 static DWORD lastTime;
@@ -42,7 +43,7 @@ using namespace Eigen;
 #define PI 3.14159265359
 
 //****************************************************
-// Some Classes
+// Classes
 //****************************************************
 class Viewport {
   public:
@@ -52,62 +53,47 @@ class Viewport {
 class Joint {
   public:
     float length;
+    Matrix3f rotation;
+    MatrixXf colRotate;
     Vector3f end;
-    Vector3f ri;
-    Matrix3f Ri;
+    Matrix3f jacobian;
 
     //Constructor
-    Joint(float length): length(length) {
-      Matrix3f R(3, 3);
-      R << 1, 0, 0, 0, 1, 0, 0, 0, 1;
-      Ri = R;
-      ri = Vector3f(0, 0, 0);
-      calculateEnd();
+    Joint(Matrix3f rotation, float length, Vector3f end): length(length), rotation(rotation), end(end) {
+    	findJacobian();
     };
 
-    /* Calculates end point of the joint. */
-    Vector3f calculateEnd() {
-      MatrixXf len(3, 1);
-      len << length, 0, 0;
-      MatrixXf endPoint = Ri * len;
-      end = Vector3f(endPoint(0, 0), endPoint(1, 0), endPoint(2, 0));
-      return end;
-    }
+    void findJacobian() {
+    	jacobian << 0,  -end.z(),  end.y(),
+    				end.z(),         0, -end.x(),
+    				-end.y(),  end.x(),        0;   
+    };
 
-    /* Adds a rotation to the current configuration */
-    void addRotation(float rx, float ry, float rz) {
-      ri += Vector3f(rx, ry, rz);
-      Vector3f nri = ri.normalized();
-
-      float theta = ri.norm();
+    void rotate(float rx, float ry, float rz) {
+      Vector3f rvec = Vector3f(rx, ry, rz);
       MatrixXf rot(3, 1);
-      rot << nri.x(), nri.y(), nri.z();
+      float theta = rvec.norm();
+      rvec.normalize();
+      rot << rvec.x(), rvec.y(), rvec.z();
 
-      Matrix3f matrix;
-      matrix << 0, -nri.z(), nri.y(), nri.z(), 0, -nri.x(), -nri.y(), nri.x(), 0;
+      Matrix3f matrx; 
+      matrx << 0, -rvec.z(), rvec.y(), rvec.z(), 0, -rvec.x(), -rvec.y(), rvec.x(), 0;
 
       Matrix3f identity;
       identity << 1, 0, 0, 0, 1, 0, 0, 0, 1;
-      Ri = identity + sin(theta) * matrix + (1 - cos(theta)) * (matrix * matrix);
-      calculateEnd();
-    }
-
-    /* Gets the joint transformation matrix */
-    Matrix4f getTransformationMatrix() {
-      Matrix4f X = Matrix4f::Zero();
-      X.block(0, 0, 3, 3) << Ri(0, 0), Ri(0, 1), Ri(0, 2), Ri(1, 0), Ri(1, 1), Ri(1, 2),
-        Ri(2, 0), Ri(2, 1), Ri(2, 2);
-      X.block(0, 2, 4, 1) << end.x(), end.y(), end.z(), 1;
-      return X;
+      rotation = identity + sin(theta) * matrx + (1 - cos(theta)) * (matrx * matrx);
+      end = rotation * end;
+      colRotate = rot;
     }
 
     void draw(Vector3f start) {
+
       //Draw arm segment
       glLineWidth(3); 
       glColor3f(1.0, 1.0, 0.0);
       glBegin(GL_LINES);
       glVertex3f(start.x(), start.y(), start.z());
-      glVertex3f(start.x() + end.x(), start.y() + end.y(), start.z() + end.z());
+      glVertex3f(end.x(), end.y(), end.z());
       glEnd();
 
       //Draw Ball Joint
@@ -125,14 +111,40 @@ class Joint {
 //****************************************************
 // Global Variables
 //****************************************************
-vector<Joint> joints;
-Viewport viewport;
-Vector3f pe;
-Vector3f goal;
-float step;
-float epsilon;
-float accum = 0.0f;
+MatrixXf    *systemJacobian;
+Viewport    viewport;
+Vector3f    effector;
+Vector3f    goal;
+float       step;
 
+vector<Joint> joints;
+float accum = 0.0f;
+int numJoints;
+
+// jacobian composition
+void composeJacobian() {
+  Matrix3f composition;
+  composition << 1, 0, 0, 0, 1, 0, 0, 0, 1;
+  for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
+    composition *= joints[i].rotation;
+    joints[i].jacobian *= composition;
+    Matrix3f ji = joints[i].jacobian;
+    systemJacobian->block(3*joints.size() - 3*(i+1), 0, 3, 3) << ji(0, 0), ji(0, 1), 
+      ji(0, 2), ji(1, 0), ji(1, 1), ji(1, 2), ji(2, 0), ji(2, 1), ji(2, 2); 
+  }
+  systemJacobian->transposeInPlace();
+}
+
+void ikSolve() {
+  composeJacobian();
+  Vector3f dp = effector + step*(goal - effector);
+  MatrixXf dr = systemJacobian->jacobiSvd(Eigen::ComputeThinU|Eigen::ComputeThinV).solve(dp);
+  int start = 0;
+  for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
+    start = dr.rows() - 3*(i + 1);
+    joints[i].rotate(dr(start, 0), dr(start + 1, 0), dr(start + 2, 0));
+  }
+}
 
 //****************************************************
 // reshape viewport if the window is resized
@@ -170,6 +182,9 @@ void initScene(){
 //***************************************************
 // function that does the actual drawing
 //***************************************************
+
+int iteration = 0;
+
 void draw() {
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);                 // clear the color buffer (sets everything to black)
@@ -178,11 +193,26 @@ void draw() {
   glLoadIdentity();                            // make sure transformation is "zero'd"
 
   //----------------------- code to draw objects --------------------------
+
   Vector3f start = Vector3f(0, 0, 0);
   for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
     joints[i].draw(start);
-    start += joints[i].end;
+    start = joints[i].end;
   }
+
+  if (iteration < 2) {
+    MatrixXf mat(3*joints.size(), 3);
+    systemJacobian = &mat;
+    ikSolve();
+    iteration += 1;
+  }
+
+  GLUquadric *quad;
+  quad = gluNewQuadric();
+  glTranslatef(goal.x(), goal.y(), goal.z());
+  gluSphere(quad,0.02,100,20);
+
+  //composeJacobian();
   
   glFlush();
   glutSwapBuffers();                           // swap buffers (we earlier set double buffer)
@@ -251,9 +281,13 @@ vector<float> parseLine(vector<string> tokens, int expected, string command) {
 
 void parseJoint(vector<string> tokens) { 
   vector<float> data = parseLine(tokens, 1, "joint");
-  Joint *j = new Joint(data[0]);
+  Matrix3f rotation;
+  rotation << 1, 0, 0, 0, 1, 0, 0, 0, 1;
+  accum += data[0];
+  Vector3f end = Vector3f(accum, 0, 0);
+  Joint *j = new Joint(rotation, data[0], end);
+  effector = j->end;
   joints.push_back(*j); 
-  pe = j->calculateEnd();
 }
 
 void parseGoal(vector<string> tokens) {
@@ -266,11 +300,6 @@ void parseStepSize(vector<string> tokens) {
   step = data[0];
 }
 
-void parseEpsilon(vector<string> tokens) {
-  vector<float> data = parseLine(tokens, 1, "epsilon");
-  epsilon = data[0];
-}
-
 void parseInput(int argc, char** argv) {
   string line;
   while (getline(cin, line)) {
@@ -279,15 +308,13 @@ void parseInput(int argc, char** argv) {
     if (tokens[0].compare("joint") == 0) { parseJoint(tokens); }
     if (tokens[0].compare("end") == 0) { parseGoal(tokens); }
     if (tokens[0].compare("step") == 0) { parseStepSize(tokens); }
-    if (tokens[0].compare("epsilon") == 0) { parseEpsilon(tokens); }
   }
-}
+} 
 
 //****************************************************
 // the usual stuff, nothing exciting here
 //****************************************************
 int main(int argc, char *argv[]) {
-  
   //This initializes glut
   glutInit(&argc, argv);
 
@@ -311,9 +338,17 @@ int main(int argc, char *argv[]) {
   glutDisplayFunc(draw);                       // function to run when its time to draw something
   glutReshapeFunc(myReshape);                  // function to run when the window gets resized
   glutIdleFunc(myFrameMove);                   // function to run when not handling any other task
-  glutKeyboardFunc(keyboardHandle);          // function to read keyboard input
-  glutSpecialFunc(specialKey);             // function to read special keyboard input - arrow keys
+  glutKeyboardFunc(keyboardHandle);   		   // function to read keyboard input
+  glutSpecialFunc(specialKey);   		       // function to read special keyboard input - arrow keys
 
   glutMainLoop();                              // infinite loop that will keep drawing and resizing and whatever else
   return 0;
 }
+
+
+
+
+
+
+
+
