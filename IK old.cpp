@@ -60,26 +60,26 @@ class Joint {
     int index;
 
     //Constructor
-    Joint(float length, int i, vector<Joint> jnts): length(length) {
+    Joint(float length, int i): length(length) {
       Matrix3f R(3, 3);
       R << 1, 0, 0, 0, 1, 0, 0, 0, 1;
       Ri = R;
       ri = Vector3f(0, 0, 0);
+      calculateEnd();
       index = i;
-      calculateEnd(jnts);
     };
 
     /* Calculates end point of the joint. */
-    Vector3f calculateEnd(vector<Joint> jnts) {
+    Vector3f calculateEnd() {
       MatrixXf len(3, 1);
       len << length, 0, 0;
-      MatrixXf endPoint = getTotalRotationMatrix(jnts) * Ri * len;
+      MatrixXf endPoint = Ri * len;
       end = Vector3f(endPoint(0, 0), endPoint(1, 0), endPoint(2, 0));
       return end;
     }
 
     /* Adds a rotation to the current configuration */
-    void addRotation(float rx, float ry, float rz, vector<Joint> jnts) {
+    void addRotation(float rx, float ry, float rz) {
       ri += Vector3f(rx, ry, rz);
       Vector3f nri = ri.normalized();
 
@@ -93,7 +93,7 @@ class Joint {
       Matrix3f identity;
       identity << 1, 0, 0, 0, 1, 0, 0, 0, 1;
       Ri = identity + sin(theta) * matrix + (1 - cos(theta)) * (matrix * matrix);
-      calculateEnd(jnts);
+      calculateEnd();
     }
 
     /* Gets the joint transformation matrix */
@@ -171,10 +171,11 @@ Matrix3f getCrossProductMatrix(Vector3f v) {
   return matrix;
 }
 
+/* Gets the jacobian */
 MatrixXf getJacobian() {
   MatrixXf jacobian(3, 3*joints.size());
   Joint endjoint = joints[joints.size() - 1];
-  endjoint.calculateEnd(joints);
+  endjoint.calculateEnd();
   Vector4f pn = Vector4f(endjoint.end.x(), endjoint.end.y(), endjoint.end.z(), 1);
   for (int i = 0; i < joints.size(); i += 1) {
     Matrix4f X = joints[i].getTotalTransformationMatrix(joints);
@@ -192,14 +193,9 @@ MatrixXf getJacobian() {
 void getEndEffector() {
   pe = Vector3f(0, 0, 0);
   for (int i = 0; i < joints.size(); i += 1) {
-    joints[i].calculateEnd(joints);
+    joints[i].calculateEnd();
     pe += joints[i].end;
   }
-  /*Vector4f origin = Vector4f(0, 0, 0, 1);
-  for (int i = 0; i < joints.size(); i += 1) {
-    origin = joints[i].getTransformationMatrix() * origin;
-  }
-  pe = Vector3f(origin[0] / origin[3], origin[1] / origin[3], origin[2] / origin[3]);*/
 }
 
 /* Solves IK */
@@ -210,9 +206,8 @@ void solveIK() {
   MatrixXf dr = jacobian.jacobiSvd(Eigen::ComputeThinU|Eigen::ComputeThinV).solve(dp);
   int start = 0;
   for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
-    //start = dr.rows() - 3*(i + 1);
-    start = 3*i;
-    joints[i].addRotation(dr(start, 0), dr(start + 1, 0), dr(start + 2, 0), joints);
+    start = dr.rows() - 3*(i + 1);
+    joints[i].addRotation(dr(start, 0), dr(start + 1, 0), dr(start + 2, 0));
   }
   getEndEffector();
 }
@@ -221,8 +216,6 @@ void solveIK() {
 void stepIK() {
   if ((goal - pe).norm() > epsilon) {
     solveIK();
-  } else {
-    cout << (goal - pe).norm();
   }
 }
 
@@ -353,9 +346,9 @@ vector<float> parseLine(vector<string> tokens, int expected, string command) {
 
 void parseJoint(vector<string> tokens) { 
   vector<float> data = parseLine(tokens, 1, "joint");
-  Joint *j = new Joint(data[0], joints.size(), joints);
+  Joint *j = new Joint(data[0], joints.size());
   joints.push_back(*j); 
-  pe += j->calculateEnd(joints);
+  pe += j->calculateEnd();
 }
 
 void parseGoal(vector<string> tokens) {
