@@ -41,6 +41,8 @@ using namespace Eigen;
 
 #define PI 3.14159265359
 
+int iteration = 0;
+
 //****************************************************
 // Some Classes
 //****************************************************
@@ -265,7 +267,6 @@ void initScene(){
 void draw() {
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);                 // clear the color buffer (sets everything to black)
-
   glMatrixMode(GL_MODELVIEW);                  // indicate we are specifying camera transformations
   glLoadIdentity();                            // make sure transformation is "zero'd"
 
@@ -400,7 +401,7 @@ int main(int argc, char *argv[]) {
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
 
   // Initalize theviewport sizes
-  viewport.w = 1300;
+  viewport.w = 1000;
   viewport.h = 1000;
 
   //The size and position of the window
