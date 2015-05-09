@@ -447,6 +447,23 @@ int main(int argc, char *argv[]) {
   glutKeyboardFunc(keyboardHandle);          // function to read keyboard input
   glutSpecialFunc(specialKey);             // function to read special keyboard input - arrow keys
 
+
+  glEnable(GL_NORMALIZE);
+  glEnable(GL_LIGHTING);
+  glEnable(GL_DEPTH_TEST);
+
+  // Initialize 1 light for scene
+  GLfloat position[4]={2.0, 2.0, 0.5, 1.0};
+  GLfloat diff[4]={0.3, 0.7, 0.1, 1};
+  GLfloat amb[4]={0.5, 1, 0.5, 1};
+  GLfloat spec[4]={1.0, 1.0, 1.0, 1.0};
+
+  glEnable(GL_LIGHT0);
+  glLightfv(GL_LIGHT0, GL_POSITION, position);
+  glLightfv(GL_LIGHT0, GL_AMBIENT, amb);
+  glLightfv(GL_LIGHT0, GL_DIFFUSE, diff);
+  glLightfv(GL_LIGHT0, GL_SPECULAR, spec);
+
   glutMainLoop();                              // infinite loop that will keep drawing and resizing and whatever else
   return 0;
 }
