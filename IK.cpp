@@ -161,14 +161,20 @@ class Joint {
 //****************************************************
 vector<Joint> joints;
 vector<Joint> backup;
+vector<Vector3f> goals;
 float prevDist = 0.0f;
+float totalLength = 0.0f;
 
 Viewport viewport;
 Vector3f pe;
 Vector3f goal;
+Vector3f ghostGoal;
+float originalStep;
 float step;
 float epsilon;
 float accum = 0.0f;
+
+int goalIndex = 0;
 
 //****************************************************
 // General Functions
@@ -223,7 +229,15 @@ void solveIK() {
   getEndEffector();
 }
 
-bool flag = false;
+/* Sets a goal to be within reach */
+void robustGoal(Vector3f g) {
+  if (g.norm() >= totalLength) {
+    g = g.normalized() * (totalLength - epsilon);
+  }
+  goals.push_back(g);
+}
+
+bool stepReduction = false;
 
 /* Step IK */
 void stepIK() {
@@ -244,14 +258,24 @@ void stepIK() {
     if (dist < 0.07 && dist < prevDist) {
       joints = backup;
       getEndEffector();
-      flag = not flag;
-      if (flag) {
+      stepReduction = not stepReduction;
+      if (stepReduction) {
         step = step / 2;
       } else {
-        step = step * 2.2;
+        step = step * 2.08;
+        if (step > originalStep) {
+          step = originalStep;
+        }
       }
     }
     prevDist = dist;
+  } else {
+    goalIndex += 1;
+    goal = goals[goalIndex];
+    ghostGoal = goal;
+    getEndEffector();
+    prevDist = (pe - goal).norm();
+    step = originalStep;
   }
 }
 
@@ -300,8 +324,9 @@ void draw() {
   glLoadIdentity();                            // make sure transformation is "zero'd"
 
   //----------------------- code to draw objects --------------------------
-
-  stepIK();
+  if (goalIndex < goals.size()) {
+    stepIK();
+  }
 
   Vector3f start = Vector3f(0, 0, 0);
   for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
@@ -312,7 +337,7 @@ void draw() {
   /* Draw end effector */
   GLUquadric *quad;
   quad = gluNewQuadric();
-  glTranslatef(goal.x(), goal.y(), goal.z());
+  glTranslatef(ghostGoal.x(), ghostGoal.y(), ghostGoal.z());
   gluSphere(quad,0.02,100,20);
   
   glFlush();
@@ -385,16 +410,23 @@ void parseJoint(vector<string> tokens) {
   Joint *j = new Joint(data[0], joints.size(), joints);
   joints.push_back(*j); 
   pe += j->calculateEnd(joints);
+  totalLength += data[0];
 }
 
 void parseGoal(vector<string> tokens) {
   vector<float> data = parseLine(tokens, 3, "end");
-  goal = Vector3f(data[0], data[1], data[2]);
+  Vector3f g = Vector3f(data[0], data[1], data[2]);
+  if (goals.size() == 0) {
+    goal = g;
+    ghostGoal = g;
+  }
+  robustGoal(g);
 }
 
 void parseStepSize(vector<string> tokens) {
   vector<float> data = parseLine(tokens, 1, "step");
   step = data[0];
+  originalStep = step;
 }
 
 void parseEpsilon(vector<string> tokens) {
