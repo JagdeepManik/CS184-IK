@@ -42,6 +42,8 @@ using namespace Eigen;
 #define PI 3.14159265359
 
 int iteration = 0;
+float rotx = 0;
+float roty = 0;
 
 //****************************************************
 // Some Classes
@@ -139,6 +141,9 @@ class Joint {
 
     void draw(Vector3f start) {
       //Draw arm segment
+      glRotatef(rotx, 1, 0, 0);
+      glRotatef(roty, 0, 1, 0);
+
       glLineWidth(3); 
       glColor3f(1.0, 1.0, 0.0);
       glBegin(GL_LINES);
@@ -195,9 +200,10 @@ MatrixXf getJacobian() {
   endjoint.calculateEnd(joints);
   Vector4f pn = Vector4f(endjoint.end.x(), endjoint.end.y(), endjoint.end.z(), 1);
   for (int i = 0; i < joints.size(); i += 1) {
-    Matrix4f X = joints[i].getTotalTransformationMatrix(joints);
-    Vector4f xpn = X * pn;
-    Vector3f homo = Vector3f(xpn[0] / xpn[3], xpn[1] / xpn[3], xpn[2] / xpn[3]);
+    Vector3f homo = Vector3f(0, 0, 0);
+    for (int j = i; j < joints.size(); j += 1) {
+      homo += joints[i].end;
+    }
     Matrix3f Ji = (-1 * joints[i].getTotalRotationMatrix(joints)) * getCrossProductMatrix(homo);
     jacobian.block(0, 3*i, 3, 3) << Ji(0, 0), Ji(0, 1), Ji(0, 2),
                                     Ji(1, 0), Ji(1, 1), Ji(1, 2),
@@ -230,14 +236,15 @@ void solveIK() {
 }
 
 /* Sets a goal to be within reach */
-void robustGoal(Vector3f g) {
+Vector3f robustGoal(Vector3f g) {
+  goals.push_back(g);
   if (g.norm() >= totalLength) {
     g = g.normalized() * (totalLength - epsilon);
   }
-  goals.push_back(g);
+  return g;
 }
 
-bool stepReduction = false;
+bool stepReduction = true;
 
 /* Step IK */
 void stepIK() {
@@ -255,24 +262,28 @@ void stepIK() {
 
     /* Check if distance decreased */
     dist = (goal - pe).norm();
-    if (dist < 0.07 && dist < prevDist) {
+    if (dist > prevDist) {
       joints = backup;
       getEndEffector();
-      stepReduction = not stepReduction;
+
       if (stepReduction) {
-        step = step / 2;
-      } else {
-        step = step * 2.08;
-        if (step > originalStep) {
-          step = originalStep;
+        step = step * 0.9;
+        if (step < 0.02) {
+          stepReduction = false;
         }
+      } else {
+        step = step * 1.1;
       }
+    } else {
+      step = originalStep;
+      stepReduction = true;
     }
     prevDist = dist;
   } else {
     goalIndex += 1;
     goal = goals[goalIndex];
     ghostGoal = goal;
+    goal = robustGoal(goal);
     getEndEffector();
     prevDist = (pe - goal).norm();
     step = originalStep;
@@ -335,10 +346,26 @@ void draw() {
   }
 
   /* Draw end effector */
+
+  glRotatef(rotx, 1, 0, 0);
+  glRotatef(roty, 0, 1, 0);
+
+  glDisable(GL_LIGHTING);
+  glBegin(GL_POLYGON);
+    glColor3f(0.3f, 0.3f, 0.3f);
+    glVertex3f(0.5, -0.3, -0.5);
+    glVertex3f(-0.5, -0.3, -0.5);
+    glVertex3f(-0.5, -0.3, 0.5);
+    glVertex3f(0.5, -0.3, 0.5);
+  glEnd();
+  
+
+  glColor3f(0.5, 0.0, 0.0);
   GLUquadric *quad;
   quad = gluNewQuadric();
   glTranslatef(ghostGoal.x(), ghostGoal.y(), ghostGoal.z());
   gluSphere(quad,0.02,100,20);
+  glEnable(GL_LIGHTING);
   
   glFlush();
   glutSwapBuffers();                           // swap buffers (we earlier set double buffer)
@@ -367,6 +394,20 @@ void keyboardHandle(unsigned char key, int x, int y) { // Funtion to call the co
 }
 
 void specialKey(int key, int x, int y) {
+  switch (key) {
+    case GLUT_KEY_UP:
+      rotx += 4.5f;
+      break;
+    case GLUT_KEY_DOWN:
+      rotx -= 4.5f;
+      break;
+    case GLUT_KEY_LEFT:
+      roty += 4.5f;
+      break;
+    case GLUT_KEY_RIGHT:
+      roty -= 4.5f;
+      break;
+  }
 }
 
 //****************************************************
@@ -416,11 +457,12 @@ void parseJoint(vector<string> tokens) {
 void parseGoal(vector<string> tokens) {
   vector<float> data = parseLine(tokens, 3, "end");
   Vector3f g = Vector3f(data[0], data[1], data[2]);
-  if (goals.size() == 0) {
+  Vector3f og = Vector3f(data[0], data[1], data[2]);
+  g = robustGoal(g);
+  if (goals.size() == 1) {
     goal = g;
-    ghostGoal = g;
+    ghostGoal = og;
   }
-  robustGoal(g);
 }
 
 void parseStepSize(vector<string> tokens) {
