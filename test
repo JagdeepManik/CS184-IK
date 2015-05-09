@@ -3,6 +3,6 @@ joint 0.1
 joint 0.1
 joint 0.1
 
-end 0.1 0.3 0
-step 0.01
-epsilon 0.08
+end 0.28 0.28 0
+step 0.1
+epsilon 0.01

@@ -69,6 +69,15 @@ class Joint {
       calculateEnd(jnts);
     };
 
+    /* Creates a copy of the joint */
+    Joint copyJoint(vector<Joint> jnts) {
+      Joint copy = Joint(length, index, jnts);
+      copy.ri = Vector3f(ri.x(), ri.y(), ri.z());
+      copy.Ri = Ri;
+      copy.end = end;
+      return copy;
+    }
+
     /* Calculates end point of the joint. */
     Vector3f calculateEnd(vector<Joint> jnts) {
       MatrixXf len(3, 1);
@@ -151,6 +160,9 @@ class Joint {
 // Global Variables
 //****************************************************
 vector<Joint> joints;
+vector<Joint> backup;
+float prevDist = 0.0f;
+
 Viewport viewport;
 Vector3f pe;
 Vector3f goal;
@@ -195,11 +207,6 @@ void getEndEffector() {
     joints[i].calculateEnd(joints);
     pe += joints[i].end;
   }
-  /*Vector4f origin = Vector4f(0, 0, 0, 1);
-  for (int i = 0; i < joints.size(); i += 1) {
-    origin = joints[i].getTransformationMatrix() * origin;
-  }
-  pe = Vector3f(origin[0] / origin[3], origin[1] / origin[3], origin[2] / origin[3]);*/
 }
 
 /* Solves IK */
@@ -210,19 +217,41 @@ void solveIK() {
   MatrixXf dr = jacobian.jacobiSvd(Eigen::ComputeThinU|Eigen::ComputeThinV).solve(dp);
   int start = 0;
   for (vector<Joint>::size_type i = 0; i != joints.size(); i++) {
-    //start = dr.rows() - 3*(i + 1);
     start = 3*i;
     joints[i].addRotation(dr(start, 0), dr(start + 1, 0), dr(start + 2, 0), joints);
   }
   getEndEffector();
 }
 
+bool flag = false;
+
 /* Step IK */
 void stepIK() {
-  if ((goal - pe).norm() > epsilon) {
+  float dist = (goal - pe).norm();
+  if (dist > epsilon) {
+    /* Backup old data */
+    vector<Joint> v;
+    for (int i = 0; i < joints.size(); i += 1) {
+      v.push_back(joints[i].copyJoint(v));
+    }
+    backup = v;
+
+    /* Run IK solve */
     solveIK();
-  } else {
-    cout << (goal - pe).norm();
+
+    /* Check if distance decreased */
+    dist = (goal - pe).norm();
+    if (dist < 0.07 && dist < prevDist) {
+      joints = backup;
+      getEndEffector();
+      flag = not flag;
+      if (flag) {
+        step = step / 2;
+      } else {
+        step = step * 2.2;
+      }
+    }
+    prevDist = dist;
   }
 }
 
@@ -396,6 +425,7 @@ int main(int argc, char *argv[]) {
   //read command line arguments 
   pe = Vector3f(0, 0, 0);
   parseInput(argc, argv);
+  prevDist = (goal - pe).norm();
 
   //This tells glut to use a double-buffered window with red, green, and blue channels 
   glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
